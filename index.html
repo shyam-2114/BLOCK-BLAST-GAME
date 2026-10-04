@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1b2436">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Block Blast</title>
+<style>
+:root{
+  --bg:#1b2436; --panel:#232f47; --cell-empty:#2c3a58; --grid-border:#334066;
+  --text:#eef2ff; --sub:#93a2c9; --accent:#ffd54f;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#eef1fb; --panel:#ffffff; --cell-empty:#e3e8f7; --grid-border:#cdd6f0;
+    --text:#1b2436; --sub:#5b6890; --accent:#ff9800;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b2436; --panel:#232f47; --cell-empnpm install @capacitor/core @capacitor/clity:#2c3a58; --grid-border:#334066;
+  --text:#eef2ff; --sub:#93a2c9; --accent:#ffd54f;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{
+  margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:16px; touch-action:none;
+}
+h1{font-size:1.4rem; margin:6px 0 2px;}
+.scorebar{display:flex; gap:18px; margin-bottom:12px; font-size:1rem; color:var(--sub);}
+.scorebar b{color:var(--accent); font-size:1.2rem;}
+#board{
+  display:grid; grid-template-columns:repeat(8,1fr); gap:4px;
+  background:var(--panel); padding:8px; border-radius:12px;
+  width:min(92vw,360px); aspect-ratio:1/1;
+}
+.cell{
+  background:var(--cell-empty); border-radius:5px; width:100%; height:100%;
+  transition:background .12s;
+}
+.cell.filled{box-shadow:inset 0 0 0 2px rgba(0,0,0,.15);}
+.cell.preview{outline:2px dashed var(--accent);}
+.cell-tag{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:7px; font-weight:800; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6);
+  letter-spacing:.5px;
+}
+#tray{
+  display:flex; justify-content:space-around; width:min(92vw,360px);
+  margin-top:20px; min-height:90px;
+}
+.piece-slot{width:30%; min-height:90px; display:flex; align-items:center; justify-content:center;}
+.piece{cursor:grab; touch-action:none;}
+.piece .prow{display:flex;}
+.piece .pcell{width:20px; height:20px; margin:1px; border-radius:3px;}
+.piece.dragging{position:fixed; z-index:100; pointer-events:none; opacity:.9;}
+.piece-label{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  pointer-events:none; text-align:center; font-weight:800; letter-spacing:.3px;
+  font-size:6px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6);
+  transform:rotate(-12deg); line-height:1.1; padding:0 2px; word-break:break-word;
+}
+#msg{margin-top:14px; font-size:1.1rem; color:var(--accent); min-height:1.4em; text-align:center;}
+button{
+  margin-top:10px; padding:8px 20px; border:none; border-radius:8px; background:var(--accent);
+  color:#1b2436; font-weight:600; font-size:1rem; cursor:pointer;
+}
+</style>
+</head>
+<body>
+<h1>🧱 Block Blast</h1>
+<div class="scorebar">Score: <b id="score">0</b> Best: <b id="best">0</b></div>
+<div id="board"></div>
+<div id="tray"></div>
+<div id="msg"></div>
+<button id="restart">Restart</button>
+
+<script>
+const SIZE = 8;
+const COLORS = ['#ff6b6b','#4ecdc4','#ffd93d','#6c5ce7','#54a0ff','#1dd1a1','#ff9f43','#feca57'];
+const MOVIES = ['BAAHUBALI','PUSHPA','RRR','ARJUN REDDY','MAGADHEERA','EEGA','SYE',
+  'ATHADU','TEMPER','RANGASTHALAM','JERSEY','SRIMANTHUDU','YEVADU','BUSINESSMAN',
+  'DHRUVA','RACE GURRAM','KICK','JULAYI','MANAM','GEETHA GOVINDAM','FIDAA',
+  'MAHANATI','PELLI CHOOPULU','NINNU KORI','SARRAINODU','KHALEJA','DOOKUDU','GABBAR SINGH'];
+const SHAPES = [
+  [[1]],
+  [[1,1]],[[1],[1]],
+  [[1,1,1]],[[1],[1],[1]],
+  [[1,1,1,1]],[[1],[1],[1],[1]],
+  [[1,1],[1,1]],
+  [[1,1,1],[1,1,1]],
+  [[1,0],[1,0],[1,1]],[[0,1],[0,1],[1,1]],[[1,1],[1,0],[1,0]],[[1,1],[0,1],[0,1]],
+  [[1,1,0],[0,1,1]],[[0,1,1],[1,1,0]],
+  [[1,1,1],[0,1,0]],[[0,1,0],[1,1,1]]
+];
+
+let grid, score, best, pieces, dragEl, dragData;
+
+function init(){
+  grid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
+  score = 0;
+  best = Number(localStorage.getItem('bb_best')||0);
+  document.getElementById('best').textContent = best;
+  pieces = [randPiece(),randPiece(),randPiece()];
+  render();
+  document.getElementById('msg').textContent = '';
+}
+
+function randPiece(){
+  const shape = SHAPES[Math.floor(Math.random()*SHAPES.length)];
+  const color = COLORS[Math.floor(Math.random()*COLORS.length)];
+  const movie = MOVIES[Math.floor(Math.random()*MOVIES.length)];
+  return {shape,color,movie,used:false};
+}
+
+function render(){
+  document.getElementById('score').textContent = score;
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+    const d = document.createElement('div');
+    const g = grid[r][c];
+    d.className = 'cell'+(g?' filled':'');
+    if(g){
+      d.style.background = g.color;
+      d.style.position = 'relative';
+      const tag = document.createElement('span');
+      tag.className = 'cell-tag';
+      tag.textContent = g.movie.split(' ')[0].slice(0,5);
+      d.appendChild(tag);
+    }
+    d.dataset.r=r; d.dataset.c=c;
+    board.appendChild(d);
+  }
+  const tray = document.getElementById('tray');
+  tray.innerHTML = '';
+  pieces.forEach((p,i)=>{
+    const slot = document.createElement('div');
+    slot.className = 'piece-slot';
+    if(!p.used){
+      const el = buildPieceEl(p);
+      el.dataset.idx = i;
+      attachDrag(el,p,i);
+      slot.appendChild(el);
+    }
+    tray.appendChild(slot);
+  });
+  checkGameOver();
+}
+
+function buildPieceEl(p){
+  const el = document.createElement('div');
+  el.className = 'piece';
+  el.style.position = 'relative';
+  p.shape.forEach(row=>{
+    const rEl = document.createElement('div');
+    rEl.className = 'prow';
+    row.forEach(v=>{
+      const c = document.createElement('div');
+      c.className='pcell';
+      c.style.background = v? p.color : 'transparent';
+      rEl.appendChild(c);
+    });
+    el.appendChild(rEl);
+  });
+  const label = document.createElement('div');
+  label.className = 'piece-label';
+  label.textContent = p.movie;
+  el.appendChild(label);
+  return el;
+}
+
+let rafId = null, lastX = 0, lastY = 0;
+const LIFT = 70; // lift the piece above the finger so it isn't hidden
+
+function attachDrag(el,p,idx){
+  el.addEventListener('pointerdown', e=>{
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    dragData = {p,idx,offX:e.clientX-rect.left,offY:e.clientY-rect.top,w:rect.width,h:rect.height};
+    dragEl = el.cloneNode(true);
+    dragEl.classList.add('dragging');
+    dragEl.style.width = rect.width+'px';
+    dragEl.style.left = '0px';
+    dragEl.style.top = '0px';
+    document.body.appendChild(dragEl);
+    el.style.visibility='hidden';
+    moveDrag(e.clientX,e.clientY);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+}
+
+function moveDrag(x,y){
+  lastX = x; lastY = y;
+  if(rafId) return;
+  rafId = requestAnimationFrame(()=>{
+    rafId = null;
+    if(!dragEl) return;
+    const px = lastX - dragData.offX;
+    const py = lastY - dragData.offY - LIFT;
+    dragEl.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+    highlightPreview(lastX, lastY - LIFT);
+  });
+}
+
+function onMove(e){ moveDrag(e.clientX,e.clientY); }
+
+function cellSizeInfo(){
+  const board = document.getElementById('board');
+  const rect = board.getBoundingClientRect();
+  const gap = 4, pad = 8;
+  const cell = (rect.width - pad*2 - gap*7)/8;
+  return {rect,gap,pad,cell};
+}
+
+function pointToCell(x,y){
+  const {rect,gap,pad,cell} = cellSizeInfo();
+  const relX = x - rect.left - pad;
+  const relY = y - rect.top - pad;
+  const c = Math.round(relX/(cell+gap));
+  const r = Math.round(relY/(cell+gap));
+  return {r,c};
+}
+
+function clearPreview(){
+  document.querySelectorAll('.cell.preview').forEach(el=>el.classList.remove('preview'));
+}
+
+function highlightPreview(x,y){
+  clearPreview();
+  const {r,c} = pointToCell(x,y);
+  const shape = dragData.p.shape;
+  if(canPlace(shape,r,c)){
+    shape.forEach((row,dr)=>row.forEach((v,dc)=>{
+      if(v){
+        const cell = document.querySelector(`.cell[data-r="${r+dr}"][data-c="${c+dc}"]`);
+        if(cell) cell.classList.add('preview');
+      }
+    }));
+  }
+}
+
+function canPlace(shape,r,c){
+  for(let dr=0;dr<shape.length;dr++)for(let dc=0;dc<shape[dr].length;dc++){
+    if(shape[dr][dc]){
+      const rr=r+dr, cc=c+dc;
+      if(rr<0||rr>=SIZE||cc<0||cc>=SIZE||grid[rr][cc]) return false;
+    }
+  }
+  return true;
+}
+
+function onUp(e){
+  document.removeEventListener('pointermove', onMove);
+  document.removeEventListener('pointerup', onUp);
+  clearPreview();
+  const {r,c} = pointToCell(e.clientX, e.clientY-LIFT);
+  const {p,idx} = dragData;
+  if(canPlace(p.shape,r,c)){
+    p.shape.forEach((row,dr)=>row.forEach((v,dc)=>{
+      if(v) grid[r+dr][c+dc] = {color:p.color, movie:p.movie};
+    }));
+    pieces[idx].used = true;
+    score += p.shape.flat().filter(Boolean).length;
+    clearLines();
+    if(pieces.every(pc=>pc.used)) pieces = [randPiece(),randPiece(),randPiece()];
+    if(score>best){best=score; localStorage.setItem('bb_best',best);}
+  }
+  if(dragEl){dragEl.remove(); dragEl=null;}
+  render();
+}
+
+function clearLines(){
+  let cleared = 0;
+  const fullRows=[], fullCols=[];
+  for(let r=0;r<SIZE;r++) if(grid[r].every(v=>v)) fullRows.push(r);
+  for(let c=0;c<SIZE;c++) if(grid.every(row=>row[c])) fullCols.push(c);
+  fullRows.forEach(r=>{grid[r]=Array(SIZE).fill(null); cleared++;});
+  fullCols.forEach(c=>{for(let r=0;r<SIZE;r++) grid[r][c]=null; cleared++;});
+  if(cleared) score += cleared*10;
+}
+
+function checkGameOver(){
+  const active = pieces.filter(p=>!p.used);
+  for(const p of active){
+    for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+      if(canPlace(p.shape,r,c)) return;
+    }
+  }
+  document.getElementById('msg').textContent = "Game Over! Final score: "+score;
+}
+
+document.getElementById('restart').addEventListener('click', init);
+init();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+
+</script>
+</body>
+</html>
